@@ -1,0 +1,90 @@
+version: "3.7"
+
+services:
+    traefik:
+        image: "traefik:v2.0.2"
+        container_name: "${PROJECT_NAME}_traefik"
+        command:
+            - "--log.level=DEBUG"
+            - "--api.insecure=true"
+            # Enabling docker provider
+            - "--providers.docker=true"
+             # Do not expose containers unless explicitly told so
+            - "--providers.docker.exposedbydefault=false"
+            - "--entrypoints.web.address=:80"
+        networks:
+            - proxy
+        ports:
+            - "80:80"
+            - "8080:8080"
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.traefik.entrypoints=web"
+            - "traefik.http.routers.traefik.rule=Host(`monitor.$DOMAIN_NAME`)"
+            - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+        volumes:
+            - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+    apache:
+        build: ./docker/apache
+        container_name: ${PROJECT_NAME}_apache
+        depends_on:
+            - mysql
+        networks:
+            - proxy
+        volumes:
+            - ./docker/apache/apache2.conf:/etc/apache2/conf-enabled/apache2.conf:ro
+            - ./docker/php/php.ini:/usr/local/etc/php/php.ini
+            - ./app:/var/www/symfony:cached
+        expose:
+            - 80
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.apache.rule=Host(`$DOMAIN_NAME`)"
+            - "traefik.http.routers.apache.entrypoints=web"
+
+    # phpMyAdmin
+    phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: ${PROJECT_NAME}_phpmyadmin
+        depends_on:
+            - mysql
+        networks:
+            - proxy
+        expose:
+            - 80
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.pma.rule=Host(`pma.$DOMAIN_NAME`)"
+            - "traefik.http.routers.pma.entrypoints=web"
+        environment:
+            PMA_HOST: mysql
+
+    # MySQL
+    mysql:
+        image: mysql:5.7
+        container_name: ${PROJECT_NAME}_mysql
+        volumes:
+            - ./docker/mysql/data:/var/lib/mysql
+        networks:
+            - proxy
+        environment:
+            MYSQL_ROOT_PASSWORD: root
+            MYSQL_DATABASE: apiplatform
+            MYSQL_USER: user
+            MYSQL_PASSWORD: password
+
+    maildev:
+        image: djfarrelly/maildev
+        container_name: ${PROJECT_NAME}_maildev
+        networks:
+            - proxy
+        labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.maildev.rule=Host(`maildev.$DOMAIN_NAME`)"
+            - "traefik.http.services.maildev.loadbalancer.server.port=80"
+            - "traefik.http.routers.maildev.entrypoints=web"
+
+networks:
+  proxy:
+    external: false
